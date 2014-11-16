@@ -26,6 +26,7 @@ void setup() {
     digitalWrite(FCX[i], 1);
     digitalWrite(FCY[i], 1);
   }
+  //Asignando valores iniciales de paro
   DX = 0;
   DY = 0;
   DZ = 0;
@@ -34,41 +35,82 @@ void setup() {
   DZp = 0;
 
   Serial.begin(9600);// activar puerto serial
-  Serial.println("Iniciando Like&PLay");
+  Serial.println("Iniciando Like&PLay 1.0");
 }
 
 void loop() {
-  Leer();
-  Mover();
+  if (1) {
+    Leer();
+    Mover();
+  }
   Mostar();
   delay(200);
 }
 
-void Mostar() {
+void Mostar() {// muestra los datos por el puerto serial
   Serial.print("valor X ");
   Serial.print(FinalCarreraX());
   Serial.print(" Y ");
-  Serial.println(FinalCarreraY());
-  
+  Serial.print(FinalCarreraY());
+  Serial.print(" DX ");
+  Serial.print(DX );
+  Serial.print(" DY ");
+  Serial.print(DY );
+  Serial.print(" DZ ");
+  Serial.println(DZ );
+
 }
 
-void Leer() {
-  while (Serial.available()) {
-    char Eje = Serial.read();
-    int Direcion = Serial.read() - 48;
-    Serial.print("Recivido ");
-    Serial.print(Eje);
-    Serial.print(" ");
-    Serial.println(Direcion);
-    
-    
+void Leer() {//busca en los controles o el puerto serial 
+  char DM  = 0; //Motor a Mover
+  int Dtmp = -1; //Direcion del Movimiento
+  while (Serial.available()) {//Saca la informacion del puerto serial ej "X1\n"
+    char Dato = Serial.read();
+    if ( Dato >= 'X' && Dato <=  'Z') {
+      DM = Dato;
+    }
+    else if ( DM != 0) {
+      if (Dato >= '0' && Dato <= '2') {
+        Dtmp = Dato - 48;
+      }
+      else if ( Dtmp != -1 && Dato == '\n') {
+        Serial.println("OK");
+        Cambiar(DM, Dtmp);
+        DM = 0;
+        Dtmp = -1;
+      }
+      else {
+        DM = 0;
+        Dtmp = -1;
+      }
+    }
+    else {
+      DM = 0;
+    }
+
   }
 
-  if (FinalCarreraX() > 0) {
+//Verifica que no llege a un final de carrera
+  if (FinalCarreraX() == DX) {
     DX = 0;
   }
-  if (FinalCarreraY() > 0) {
+  if (FinalCarreraY() == DY) {
     DY = 0;
+  }
+
+}
+
+void  Cambiar(char D, char Dtmp) {//Cambia la direcion
+  switch (D) {
+    case 'X':
+      DX = Dtmp;
+      break;
+    case 'Y':
+      DY = Dtmp;
+      break;
+    case 'Z':
+      DZ = Dtmp;
+      break;
   }
 }
 
@@ -118,16 +160,16 @@ void Reversa(int Motor[]) { // Pone en reversa el motor que se envie
 
 int FinalCarreraX() {  // 0 para inactivo, 1 para activo a la izquierda, 2 activo a la derecha
   if (digitalRead(FCX[0]) == 1 )
-    return 1;
-  if (digitalRead(FCX[1]) == 1)
     return 2;
+  if (digitalRead(FCX[1]) == 1)
+    return 1;
   return 0;
 }
 
 int FinalCarreraY() { // 0 para inactivo, 1 para activo a la adelante, 2 activo a la atras
   if (digitalRead(FCY[0]) == 1 )
-    return 1;
-  if (digitalRead(FCY[1]) == 1)
     return 2;
+  if (digitalRead(FCY[1]) == 1)
+    return 1;
   return 0;
 }
