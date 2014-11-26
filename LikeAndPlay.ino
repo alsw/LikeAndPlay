@@ -6,8 +6,13 @@ int MX[] = {3, 5}; //Pines del motor en eje X
 int MY[] = {6, 10}; //Pines del motor en eje Y
 int MZ[] = {9, 11}; //Pines del motor en eje Z
 
-int FCX[] = {7, 8}; //Pines de final de carrera izquierda, derecha
-int FCY[] = {13, 12}; //Pines de final de carrera adelante, atras
+int FCX[] = {13, 12}; //Pines de final de carrera izquierda, derecha
+int FCY[] = {7, 8}; //Pines de final de carrera adelante, atras
+
+int Palanca[] = {A1, A0 , A2};
+int RPalanca[] = {300, 700};
+boolean JugarP = true;
+
 
 int DX, DY, DZ; //Direcion del moviento en X,Y y Z
 int DXp, DYp, DZp; //Ultima direcion de moviento
@@ -26,7 +31,12 @@ void setup() {
     digitalWrite(FCX[i], 1);
     digitalWrite(FCY[i], 1);
   }
+
+  for (int i = 0; i < 3; i++) {
+    pinMode(Palanca[i], INPUT);
+  }
   //Asignando valores iniciales de paro
+
   DX = 0;
   DY = 0;
   DZ = 0;
@@ -48,7 +58,13 @@ void loop() {
 }
 
 void Mostar() {// muestra los datos por el puerto serial
-  Serial.print("valor X ");
+  Serial.print("P0 ");
+  Serial.print(VP(0));
+  Serial.print(" P1 ");
+  Serial.print(VP(1));
+  Serial.print(" P2 ");
+  Serial.print(VP(2));
+  Serial.print(" valor X ");
   Serial.print(FinalCarreraX());
   Serial.print(" Y ");
   Serial.print(FinalCarreraY());
@@ -61,7 +77,7 @@ void Mostar() {// muestra los datos por el puerto serial
 
 }
 
-void Leer() {//busca en los controles o el puerto serial 
+void Leer() {//busca en los controles o el puerto serial
   char DM  = 0; //Motor a Mover
   int Dtmp = -1; //Direcion del Movimiento
   while (Serial.available()) {//Saca la informacion del puerto serial ej "X1\n"
@@ -90,7 +106,14 @@ void Leer() {//busca en los controles o el puerto serial
 
   }
 
-//Verifica que no llege a un final de carrera
+  if (JugarP) {
+    Cambiar('X', VP(0));
+    Cambiar('Y',  Invertir(VP(1)));
+    Cambiar('Z', VP(2));
+
+  }
+
+  //Verifica que no llege a un final de carrera
   if (FinalCarreraX() == DX) {
     DX = 0;
   }
@@ -170,6 +193,33 @@ int FinalCarreraY() { // 0 para inactivo, 1 para activo a la adelante, 2 activo 
   if (digitalRead(FCY[0]) == 1 )
     return 2;
   if (digitalRead(FCY[1]) == 1)
+    return 1;
+  return 0;
+}
+
+int VP(int i) {
+
+  int Valor = analogRead(Palanca[i]);
+
+  if (  Valor < RPalanca[0]) {
+    return 1;
+  }
+  else if ( Valor > RPalanca[1]) {
+    return 2;
+  }
+  else {
+    return 0;
+  }
+
+  return 0;
+
+}
+
+
+int Invertir(int i) {
+  if ( i == 1)
+    return 2;
+  else if ( i == 2)
     return 1;
   return 0;
 }
