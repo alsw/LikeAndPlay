@@ -1,225 +1,220 @@
-#include  <Bridge.h>
+#include <Bridge.h>
+#include <SpacebrewYun.h>
 
-int blue[] = {2, 4}; //Pines del Blue
+#include "LikeAndPlay.h"
+#include "Control_Maquina.h"
 
-int MX[] = {3, 5}; //Pines del motor en eje X
-int MY[] = {6, 10}; //Pines del motor en eje Y
-int MZ[] = {9, 11}; //Pines del motor en eje Z
+//Variables de estado de la comunicacion serie bluetooth
+bool esperandoTrama = true;  //Bandera que indica si se espera trama nueva
+char ejeTrama = 0;    //Indica con 'x', 'y' o 'z' el eje que se esta recibiendo
+char bufferSerie[5];  //Buffer de recepcion de datos (3 digitos, signo y cero terminador)
+char posBuffer = 0;   //La posicion de escritura del buffer para los datos recibidos
 
-int FCX[] = {13, 12}; //Pines de final de carrera izquierda, derecha
-int FCY[] = {7, 8}; //Pines de final de carrera adelante, atras
-
-int Palanca[] = {A1, A0 , A2};
-int RPalanca[] = {300, 700};
-boolean JugarP = true;
-
-
-int DX, DY, DZ; //Direcion del moviento en X,Y y Z
-int DXp, DYp, DZp; //Ultima direcion de moviento
-// 0 Detenido
-// 1 Adelante
-// 2 Atras
-
+//Instancia del objeto de comunicacion spacebrew
+SpacebrewYun sb = SpacebrewYun("Like & Play", "Nuestra maquina de atrapar dulces!");
 
 void setup() {
-  for (int i = 0; i < 2; i++) {//Configurar pines
-    pinMode(MX[i], OUTPUT);
-    pinMode(MY[i], OUTPUT);
-    pinMode(MZ[i], OUTPUT);
-    pinMode(FCX[i], INPUT);
-    pinMode(FCY[i], INPUT);
-    digitalWrite(FCX[i], 1);
-    digitalWrite(FCY[i], 1);
+  //Hace escritura analogica de cero en todos los pines para
+  //apagar los motores inicialmente
+  analogWrite(pinMXA, 0);
+  analogWrite(pinMXB, 0);
+  analogWrite(pinMYA, 0);
+  analogWrite(pinMYB, 0);
+  analogWrite(pinMZA, 0);
+  analogWrite(pinMZB, 0);
+
+  //Coloca todos los pines de los sensores como entradas con
+  //pull-up
+  pinMode(pinFCXL, INPUT_PULLUP);
+  pinMode(pinFCXR, INPUT_PULLUP);
+  pinMode(pinFCYD, INPUT_PULLUP);
+  pinMode(pinFCYA, INPUT_PULLUP);
+
+  //Coloca el pin de control de bluetooth en modo de
+  //comunicacion
+  digitalWrite(pinBtKey, LOW);
+  pinMode(pinBtKey, OUTPUT);
+
+  //Inicializa el puerto serie de hardware conectado al
+  //bluetooth
+  Serial1.begin(9600);
+
+  //Descomentar temporalmente para configurar modulo bluetooth
+  //en modo AT (Nota: Se bloquea el sketch)
+/*
+  digitalWrite(pinBtKey, HIGH);
+  Serial.begin(9600);
+  while (!Serial);
+  Serial.println("Modo AT activo");
+  for (;;) {
+    if (Serial1.available())
+      Serial.write(Serial1.read());
+    if (Serial.available())
+      Serial1.write(Serial.read());
   }
+*/
 
-  for (int i = 0; i < 3; i++) {
-    pinMode(Palanca[i], INPUT);
-  }
-  //Asignando valores iniciales de paro
+  //Inicializa la libreria bridge
+  Bridge.begin();
 
-  DX = 0;
-  DY = 0;
-  DZ = 0;
-  DXp = 0;
-  DYp = 0;
-  DZp = 0;
-
-  Serial.begin(9600);// activar puerto serial
-  Serial.println("Iniciando Like&PLay 1.0");
+  //Inicializa el objeto spacebrew agregando 3 suscriptores, luego agrega el callback para los
+  //mensajes de tipo range y finalmente se conecta
+  sb.addSubscribe("Eje X", "range");
+  sb.addSubscribe("Eje Y", "range");
+  sb.addSubscribe("Eje Z", "range");
+  sb.onRangeMessage(handleRange);
+  sb.connect("sandbox.spacebrew.cc"); 
 }
 
 void loop() {
-  if (1) {
-    Leer();
-    Mover();
+  static unsigned long tAnt = 0;
+  unsigned long tAct;
+
+  //Primeramente se leen los joysticks cada 10ms
+  tAct = millis();
+  if (tAct - tAnt >= 10) {
+    leerJoysticks();
+    tAnt = tAct;
   }
-  Mostar();
-  delay(200);
+
+  //A continuacion se procesan los datos serie que vienen del modulo bluetooth
+  procesarTramaSerie();
+
+  //Luego se monitorea la conexion con spacebrew
+  sb.monitor();
+
+  //En caso que la conexion con spacebrew se pierda, se desactivan los controles asociados
+  if (!sb.connected() ) {
+    control.sb.x = 0;
+    control.sb.y = 0;
+    control.sb.z = 0;
+  }
+
+  //Finalmente se controla la maquina en si, con la informacion recolectada de todos los
+  //controles
+  controlarMaquina();
 }
 
-void Mostar() {// muestra los datos por el puerto serial
-  Serial.print("P0 ");
-  Serial.print(VP(0));
-  Serial.print(" P1 ");
-  Serial.print(VP(1));
-  Serial.print(" P2 ");
-  Serial.print(VP(2));
-  Serial.print(" valor X ");
-  Serial.print(FinalCarreraX());
-  Serial.print(" Y ");
-  Serial.print(FinalCarreraY());
-  Serial.print(" DX ");
-  Serial.print(DX );
-  Serial.print(" DY ");
-  Serial.print(DY );
-  Serial.print(" DZ ");
-  Serial.println(DZ );
-
+void leerJoysticks() {
+  //Se leen los controles de joystick y se umbralizan
+  control.js.x = umbralizarJoystick(analogRead(pinJoyX));
+  control.js.y = umbralizarJoystick(analogRead(pinJoyY));
+  control.js.z = umbralizarJoystick(analogRead(pinJoyZ));
 }
 
-void Leer() {//busca en los controles o el puerto serial
-  char DM  = 0; //Motor a Mover
-  int Dtmp = -1; //Direcion del Movimiento
-  while (Serial.available()) {//Saca la informacion del puerto serial ej "X1\n"
-    char Dato = Serial.read();
-    if ( Dato >= 'X' && Dato <=  'Z') {
-      DM = Dato;
+int umbralizarJoystick(int lectura) {
+  //El proceso de umbralizacion toma una lectura de ADC entre 0 y 1023 y determina si el joystick
+  //se activo hacia atras (valor de ADC bajo) devolviendo -255, o bien si esta centrado (valor
+  //intermedio) devolviendo cero, o bien si se activo hacia adelante (valor de ADC alto)
+  //retornando 255
+  if (lectura < 341)
+    return -255;
+  else if (lectura > 682)
+    return 255;
+  else
+    return 0;
+}
+
+void procesarTramaSerie() {
+  char caracter;
+  byte i;
+  static bool limpiarBuffer = true;
+
+  //Si no hay caracteres pendientes de procesar, retorna inmediatamente
+  if (!Serial1.available()) return;
+
+  //Si los hay, lee el siguiente
+  caracter = Serial1.read();
+  Serial.print(caracter);
+
+  //Si la bandera de limpieza esta activa, procede a limpiar el buffer de entrada
+  if (limpiarBuffer) {
+    //Recorre todo el buffer escribiendo cada caracter con un cero terminador
+    for (i=0; i<sizeof(bufferSerie); i++)
+      bufferSerie[i] = 0;    
+
+    posBuffer = 0;  //La posicion del buffer ahora apunta al principio
+
+    limpiarBuffer = false;   //Limpia la bandera para no repetir el proceso
+  }
+
+  //El caracter se procesa dependiendo de si se espera una trama o no
+  if (esperandoTrama) {
+    //Si se espera trama nueva, se verifica que ingrese una letra X, Y o Z
+    //Al recibir cualquiera de ellas exitosamente, se guarda el eje asociado a la trama y
+    //se desmarca la bandera de espera
+    switch (caracter) {
+      case 'X':
+      case 'x':
+        ejeTrama='x';
+        esperandoTrama = false;
+        break;
+      case 'Y':
+      case 'y':
+        ejeTrama='y';
+        esperandoTrama = false;
+        break;
+      case 'Z':
+      case 'z':
+        ejeTrama='z';
+        esperandoTrama = false;
+        break;
     }
-    else if ( DM != 0) {
-      if (Dato >= '0' && Dato <= '2') {
-        Dtmp = Dato - 48;
-      }
-      else if ( Dtmp != -1 && Dato == '\n') {
-        Serial.println("OK");
-        Cambiar(DM, Dtmp);
-        DM = 0;
-        Dtmp = -1;
-      }
-      else {
-        DM = 0;
-        Dtmp = -1;
-      }
-    }
-    else {
-      DM = 0;
-    }
-
-  }
-
-  if (JugarP) {
-    Cambiar('X', VP(0));
-    Cambiar('Y',  Invertir(VP(1)));
-    Cambiar('Z', VP(2));
-
-  }
-
-  //Verifica que no llege a un final de carrera
-  if (FinalCarreraX() == DX) {
-    DX = 0;
-  }
-  if (FinalCarreraY() == DY) {
-    DY = 0;
-  }
-
-}
-
-void  Cambiar(char D, char Dtmp) {//Cambia la direcion
-  switch (D) {
-    case 'X':
-      DX = Dtmp;
-      break;
-    case 'Y':
-      DY = Dtmp;
-      break;
-    case 'Z':
-      DZ = Dtmp;
-      break;
-  }
-}
-
-void Mover() {//Comprueva si hay cambios de direciones y los aplica
-  if (DX != DXp) {
-    DXp = DX;
-    DMover(DX, MX);
-  }
-  if (DY != DYp) {
-    DYp = DY;
-    DMover(DY, MY);
-  }
-  if (DZ != DZp) {
-    DZp = DZ;
-    DMover(DZ, MZ);
-  }
-}
-
-void DMover(int D, int Motor[]) { //mueve el motor segun estado
-  switch (D) {
-    case 0:
-      Parar(Motor);
-      break;
-    case 1:
-      Adelante(Motor);
-      break;
-    case 2:
-      Reversa(Motor);
-      break;
-  }
-}
-
-void Parar(int Motor[]) { // detiene el motor que se envie
-  digitalWrite(Motor[0], 0);
-  digitalWrite(Motor[1], 0);
-}
-
-void Adelante(int Motor[]) { //Ponen en marcha el motor que se envie
-  digitalWrite(Motor[0], 1);
-  digitalWrite(Motor[1], 0);
-}
-
-void Reversa(int Motor[]) { // Pone en reversa el motor que se envie
-  digitalWrite(Motor[0], 0);
-  digitalWrite(Motor[1], 1);
-}
-
-int FinalCarreraX() {  // 0 para inactivo, 1 para activo a la izquierda, 2 activo a la derecha
-  if (digitalRead(FCX[0]) == 1 )
-    return 2;
-  if (digitalRead(FCX[1]) == 1)
-    return 1;
-  return 0;
-}
-
-int FinalCarreraY() { // 0 para inactivo, 1 para activo a la adelante, 2 activo a la atras
-  if (digitalRead(FCY[0]) == 1 )
-    return 2;
-  if (digitalRead(FCY[1]) == 1)
-    return 1;
-  return 0;
-}
-
-int VP(int i) {
-
-  int Valor = analogRead(Palanca[i]);
-
-  if (  Valor < RPalanca[0]) {
-    return 1;
-  }
-  else if ( Valor > RPalanca[1]) {
-    return 2;
+    //Nota: Si el caracter no es ninguno de los esperados entonces se descarta
   }
   else {
-    return 0;
+    //Si hay una trama en curso, se actua dependiendo del caracter recibido
+    if (caracter == '\n') {
+      //Si se recibe un fin de linea, se procesa la trama dependiendo del eje asociado
+      switch(ejeTrama) {
+        case 'x':
+          //Se convierte el buffer a una variable tipo entero y se guarda en el eje de control
+          //correspondiente, luego se recorta para evitar desbordamientos
+          control.bt.x = atoi(bufferSerie);
+          control.bt.x = constrain(control.bt.x, -255, 255);
+          break;
+        case 'y':
+          control.bt.y = atoi(bufferSerie);
+          control.bt.y = constrain(control.bt.y, -255, 255);
+          break;
+        case 'z':
+          control.bt.z = atoi(bufferSerie);
+          control.bt.z = constrain(control.bt.z, -255, 255);
+          break;
+      }
+
+      //Una vez procesado el buffer, se limpiara el mismo a la proxima iteracion y se esperara
+      //una nueva trama
+      limpiarBuffer = true;
+      esperandoTrama = true;
+    }
+    else if (((caracter >= '0' && caracter <= '9') || caracter == '-') &&
+             posBuffer < sizeof(bufferSerie) - 1) {
+      //Si se recibe un caraccter entre 0 y 9 o bien el signo negativo, y ademas hay espacio
+      //en buffer, entonces se guarda ese caracter
+      bufferSerie[posBuffer++] = caracter;
+    }
+    else {
+      //Si el caracter no es ninguno de los esperados (fin de linea, digito de 0 a 9, o signo
+      //negativo) o bien se agoto el espacio en buffer, se descarta la trama por ser invalida
+      //y se limpia el buffer para esperar una nueva
+      limpiarBuffer = true;
+      esperandoTrama = true;
+    }
   }
-
-  return 0;
-
+/*
+  //Depuracion solamente, insertar Serial.begin(9600) en setup() si se usa
+  Serial.print("X = ");
+  Serial.print(control.bt.x);
+  Serial.print(" Y = ");
+  Serial.print(control.bt.y);
+  Serial.print(" Z = ");
+  Serial.println(control.bt.z);
+*/
 }
 
-
-int Invertir(int i) {
-  if ( i == 1)
-    return 2;
-  else if ( i == 2)
-    return 1;
-  return 0;
+void handleRange (String route, int value) {
+  if (route == "Eje X") control.sb.x = constrain(value, -255, 255);
+  if (route == "Eje Y") control.sb.y = constrain(value, -255, 255);
+  if (route == "Eje Z") control.sb.z = constrain(value, -255, 255);
 }
