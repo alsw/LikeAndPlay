@@ -17,7 +17,9 @@ const int pinMZB = 9;
 const int pinFCXL = 12;
 const int pinFCXR = 13;
 const int pinFCYD = 7;
-const int pinFCYA = 8;
+const int pinFCYA = 4;
 
-//Pin de control de modo del bluetooth
+//Pines del modulo bluetooth
+const int pinBtTx = 2;
+const int pinBtRx = 8;
 const int pinBtKey = A5;

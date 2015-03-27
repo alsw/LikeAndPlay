@@ -1,5 +1,5 @@
 #include "Control_Maquina.h"
-#include "LikeAndPlay.h"
+#include "Pines.h"
 
 CONTROL_MAQUINA control = {
   { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 },

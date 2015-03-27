@@ -1,8 +1,12 @@
 #include <Bridge.h>
 #include <SpacebrewYun.h>
+#include <SoftwareSerial.h>
 
-#include "LikeAndPlay.h"
+#include "Pines.h"
 #include "Control_Maquina.h"
+
+//Se emplea Software Serial para comunicarse con el modulo bluetooth
+SoftwareSerial SerialBt(pinBtRx, pinBtTx);
 
 //Variables de estado de la comunicacion serie bluetooth
 bool esperandoTrama = true;  //Bandera que indica si se espera trama nueva
@@ -35,22 +39,21 @@ void setup() {
   digitalWrite(pinBtKey, LOW);
   pinMode(pinBtKey, OUTPUT);
 
-  //Inicializa el puerto serie de hardware conectado al
-  //bluetooth
-  Serial1.begin(9600);
+  //Inicializa el puerto serie por sofware conectado al bluetooth
+  SerialBt.begin(9600);
 
   //Descomentar temporalmente para configurar modulo bluetooth
   //en modo AT (Nota: Se bloquea el sketch)
 /*
-  digitalWrite(pinBtKey, HIGH);
   Serial.begin(9600);
   while (!Serial);
+  digitalWrite(pinBtKey, HIGH);
   Serial.println("Modo AT activo");
   for (;;) {
-    if (Serial1.available())
-      Serial.write(Serial1.read());
+    if (SerialBt.available())
+      Serial.write(SerialBt.read());
     if (Serial.available())
-      Serial1.write(Serial.read());
+      SerialBt.write(Serial.read());
   }
 */
 
@@ -63,7 +66,7 @@ void setup() {
   sb.addSubscribe("Eje Y", "range");
   sb.addSubscribe("Eje Z", "range");
   sb.onRangeMessage(handleRange);
-  sb.connect("sandbox.spacebrew.cc"); 
+  sb.connect("sandbox.spacebrew.cc");
 }
 
 void loop() {
@@ -121,11 +124,10 @@ void procesarTramaSerie() {
   static bool limpiarBuffer = true;
 
   //Si no hay caracteres pendientes de procesar, retorna inmediatamente
-  if (!Serial1.available()) return;
+  if (!SerialBt.available()) return;
 
   //Si los hay, lee el siguiente
-  caracter = Serial1.read();
-  Serial.print(caracter);
+  caracter = SerialBt.read();
 
   //Si la bandera de limpieza esta activa, procede a limpiar el buffer de entrada
   if (limpiarBuffer) {
